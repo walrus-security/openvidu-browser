@@ -336,6 +336,7 @@ export class OpenVidu {
       (browser !== 'Firefox') && (browser !== 'Firefox Mobile') &&
       (browser !== 'Opera') && (browser !== 'Opera Mobile') &&
       (browser !== 'Android Browser') && (browser !== 'Electron')
+      && (browser && !browser.includes('Samsung'))
     ) {
       return 0;
     } else {
