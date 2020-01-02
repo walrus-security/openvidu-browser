@@ -1,0 +1,46 @@
+{
+    "author": "OpenVidu",
+    "dependencies": {
+        "@types/node": "12.6.8",
+        "@types/platform": "1.3.2",
+        "freeice": "2.2.2",
+        "hark": "1.2.3",
+        "platform": "1.3.5",
+        "uuid": "3.3.2",
+        "wolfy87-eventemitter": "5.2.6"
+    },
+    "description": "OpenVidu Browser",
+    "devDependencies": {
+        "browserify": "16.3.0",
+        "grunt": "1.0.4",
+        "grunt-autoprefixer": "3.0.4",
+        "grunt-cli": "1.3.2",
+        "grunt-contrib-copy": "1.0.0",
+        "grunt-contrib-sass": "1.0.0",
+        "grunt-contrib-uglify": "4.0.1",
+        "grunt-contrib-watch": "1.1.0",
+        "grunt-string-replace": "1.3.1",
+        "grunt-ts": "6.0.0-beta.22",
+        "tsify": "4.0.1",
+        "tslint": "5.18.0",
+        "typedoc": "0.15.0",
+        "typescript": "3.5.3",
+        "uglify-js": "3.6.0"
+    },
+    "license": "Apache-2.0",
+    "main": "lib/index.js",
+    "name": "openvidu-browser",
+    "repository": {
+        "type": "git",
+        "url": "git://github.com/OpenVidu/openvidu"
+    },
+    "scripts": {
+        "browserify": "VERSION=${VERSION:-}; cd src && ../node_modules/browserify/bin/cmd.js Main.ts -p [ tsify ] --exclude kurento-browser-extensions --debug -o ../static/js/openvidu-browser-$VERSION.js -v",
+        "browserify-prod": "VERSION=${VERSION:-}; cd src && ../node_modules/browserify/bin/cmd.js --debug Main.ts -p [ tsify ] --exclude kurento-browser-extensions | ../node_modules/uglify-js/bin/uglifyjs --source-map content=inline --output ../static/js/openvidu-browser-$VERSION.min.js",
+        "build": "cd src/OpenVidu && ./../../node_modules/typescript/bin/tsc && cd ../.. && ./node_modules/typescript/bin/tsc --declaration src/index.ts --outDir ./lib --sourceMap --lib dom,es5,es2015.promise,scripthost",
+        "docs": "./node_modules/typedoc/bin/typedoc --options ./config/typedoc.js --out ./docs ./src && rm -rf ../../openvidu.io/api/openvidu-browser/* && cp -R ./docs/. ../../openvidu.io/api/openvidu-browser",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "types": "lib/index.d.ts",
+    "version": "2.11.0"
+}
