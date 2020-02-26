@@ -143,11 +143,13 @@ export class StreamManager implements EventDispatcher {
      */
     on(type: string, handler: (event: Event) => void): EventDispatcher {
         this.ee.on(type, event => {
-            if (event) {
-                console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'", event);
-            } else {
-                console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'");
-            }
+	    if (type !== 'streamAudioVolumeChange') {
+                if (event) {
+                   console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'", event);
+                } else {
+                    console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'");
+                }
+	    }
             handler(event);
         });
         if (type === 'videoElementCreated') {
