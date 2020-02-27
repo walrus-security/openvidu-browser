@@ -319,6 +319,9 @@ export class OpenVidu {
    * @returns 1 if the browser supports OpenVidu, 0 otherwise
    */
   checkSystemRequirements(): number {
+	  // PATCHED: we do our own system requirements checking.
+	return 1;
+	/*
     const browser = platform.name;
     const family = platform.os!!.family;
     const userAgent = !!platform.ua ? platform.ua : navigator.userAgent;
@@ -342,6 +345,7 @@ export class OpenVidu {
     } else {
       return 1;
     }
+    */
   }
 
 
