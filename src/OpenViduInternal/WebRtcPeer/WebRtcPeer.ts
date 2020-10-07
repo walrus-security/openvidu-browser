@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,12 @@
 import freeice = require('freeice');
 import uuid = require('uuid');
 import platform = require('platform');
+import { OpenViduLogger } from '../Logger/OpenViduLogger';
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
+
 
 export interface WebRtcPeerConfiguration {
     mediaConstraints: {
@@ -43,11 +49,11 @@ export class WebRtcPeer {
 
     private candidategatheringdone = false;
 
-    constructor(private configuration: WebRtcPeerConfiguration) {
+    constructor(protected configuration: WebRtcPeerConfiguration) {
         this.configuration.iceServers = (!!this.configuration.iceServers && this.configuration.iceServers.length > 0) ? this.configuration.iceServers : freeice();
 
         this.pc = new RTCPeerConnection({ iceServers: this.configuration.iceServers });
-        this.id = !!configuration.id ? configuration.id : uuid.v4();
+        this.id = !!configuration.id ? configuration.id : this.generateUniqueId();
 
         this.pc.onicecandidate = event => {
             if (!!event.candidate) {
@@ -65,7 +71,8 @@ export class WebRtcPeer {
         this.pc.onsignalingstatechange = () => {
             if (this.pc.signalingState === 'stable') {
                 while (this.iceCandidateList.length > 0) {
-                    this.pc.addIceCandidate(<RTCIceCandidate>this.iceCandidateList.shift());
+                    let candidate = this.iceCandidateList.shift();
+                    this.pc.addIceCandidate(<RTCIceCandidate>candidate);
                 }
             }
         };
@@ -86,14 +93,8 @@ export class WebRtcPeer {
                 reject('The peer connection object is in "closed" state. This is most likely due to an invocation of the dispose method before accepting in the dialogue');
             }
             if (!!this.configuration.mediaStream) {
-                if (platform['isIonicIos']) {
-                    // iOS Ionic. LIMITATION: must use deprecated WebRTC API
-                    const pc2: any = this.pc;
-                    pc2.addStream(this.configuration.mediaStream);
-                } else {
-                    for (const track of this.configuration.mediaStream.getTracks()) {
-                        this.pc.addTrack(track, this.configuration.mediaStream);
-                    }
+                for (const track of this.configuration.mediaStream.getTracks()) {
+                    this.pc.addTrack(track, this.configuration.mediaStream);
                 }
                 resolve();
             }
@@ -103,54 +104,15 @@ export class WebRtcPeer {
     /**
      * This method frees the resources used by WebRtcPeer
      */
-    dispose(videoSourceIsMediaStreamTrack: boolean) {
-        console.debug('Disposing WebRtcPeer');
-        try {
-            if (this.pc) {
-                if (this.pc.signalingState === 'closed') {
-                    return;
-                }
-                this.remoteCandidatesQueue = [];
-                this.localCandidatesQueue = [];
-
-                if (platform['isIonicIos']) {
-                    // iOS Ionic. LIMITATION: must use deprecated WebRTC API
-                    // Stop senders deprecated
-                    const pc1: any = this.pc;
-                    for (const sender of pc1.getLocalStreams()) {
-                        if (!videoSourceIsMediaStreamTrack) {
-                            sender.stop();
-                        }
-                        pc1.removeStream(sender);
-                    }
-                    // Stop receivers deprecated
-                    for (const receiver of pc1.getRemoteStreams()) {
-                        if (!!receiver.track) {
-                            receiver.stop();
-                        }
-                    }
-                } else {
-                    // Stop senders
-                    for (const sender of this.pc.getSenders()) {
-                        if (!videoSourceIsMediaStreamTrack) {
-                            if (!!sender.track) {
-                                sender.track.stop();
-                            }
-                        }
-                        this.pc.removeTrack(sender);
-                    }
-                    // Stop receivers
-                    for (const receiver of this.pc.getReceivers()) {
-                        if (!!receiver.track) {
-                            receiver.track.stop();
-                        }
-                    }
-                }
-
-                this.pc.close();
+    dispose() {
+        logger.debug('Disposing WebRtcPeer');
+        if (this.pc) {
+            if (this.pc.signalingState === 'closed') {
+                return;
             }
-        } catch (err) {
-            console.warn('Exception disposing webrtc peer ' + err);
+            this.pc.close();
+            this.remoteCandidatesQueue = [];
+            this.localCandidatesQueue = [];
         }
     }
 
@@ -175,7 +137,7 @@ export class WebRtcPeer {
                 offerToReceiveVideo: (this.configuration.mode !== 'sendonly' && offerVideo)
             };
 
-            console.debug('RTCPeerConnection constraints: ' + JSON.stringify(constraints));
+            logger.debug('RTCPeerConnection constraints: ' + JSON.stringify(constraints));
 
             if (platform.name === 'Safari' && platform.ua!!.indexOf('Safari') !== -1) {
                 // Safari (excluding Ionic), at least on iOS just seems to support unified plan, whereas in other browsers is not yet ready and considered experimental
@@ -194,14 +156,14 @@ export class WebRtcPeer {
                 this.pc
                     .createOffer()
                     .then(offer => {
-                        console.debug('Created SDP offer');
+                        logger.debug('Created SDP offer');
                         return this.pc.setLocalDescription(offer);
                     })
                     .then(() => {
                         const localDescription = this.pc.localDescription;
 
                         if (!!localDescription) {
-                            console.debug('Local description set', localDescription.sdp);
+                            logger.debug('Local description set', localDescription.sdp);
                             resolve(localDescription.sdp);
                         } else {
                             reject('Local description is not defined');
@@ -213,13 +175,13 @@ export class WebRtcPeer {
 
                 // Rest of platforms
                 this.pc.createOffer(constraints).then(offer => {
-                    console.debug('Created SDP offer');
+                    logger.debug('Created SDP offer');
                     return this.pc.setLocalDescription(offer);
                 })
                     .then(() => {
                         const localDescription = this.pc.localDescription;
                         if (!!localDescription) {
-                            console.debug('Local description set', localDescription.sdp);
+                            logger.debug('Local description set', localDescription.sdp);
                             resolve(localDescription.sdp);
                         } else {
                             reject('Local description is not defined');
@@ -240,28 +202,37 @@ export class WebRtcPeer {
                 type: 'answer',
                 sdp: sdpAnswer
             };
-            console.debug('SDP answer received, setting remote description');
+            logger.debug('SDP answer received, setting remote description');
 
             if (this.pc.signalingState === 'closed') {
                 reject('RTCPeerConnection is closed');
             }
-            if (platform['isIonicIos']) {
-                // Ionic iOS platform
-                if (needsTimeoutOnProcessAnswer) {
-                    // 400 ms have not elapsed yet since first remote stream triggered Stream#initWebRtcPeerReceive
-                    setTimeout(() => {
-                        console.info('setRemoteDescription run after timeout for Ionic iOS device');
-                        this.pc.setRemoteDescription(new RTCSessionDescription(answer)).then(() => resolve()).catch(error => reject(error));
-                    }, 250);
-                } else {
-                    // 400 ms have elapsed
-                    this.pc.setRemoteDescription(new RTCSessionDescription(answer)).then(() => resolve()).catch(error => reject(error));
-                }
-            } else {
-                // Rest of platforms
-                this.pc.setRemoteDescription(answer).then(() => resolve()).catch(error => reject(error));
-            }
+
+            this.setRemoteDescription(answer, needsTimeoutOnProcessAnswer, resolve, reject);
+
         });
+    }
+
+    /**
+     * @hidden
+     */
+    setRemoteDescription(answer: RTCSessionDescriptionInit, needsTimeoutOnProcessAnswer: boolean, resolve: (value?: string | PromiseLike<string> | undefined) => void, reject: (reason?: any) => void) {
+        if (platform['isIonicIos']) {
+            // Ionic iOS platform
+            if (needsTimeoutOnProcessAnswer) {
+                // 400 ms have not elapsed yet since first remote stream triggered Stream#initWebRtcPeerReceive
+                setTimeout(() => {
+                    logger.info('setRemoteDescription run after timeout for Ionic iOS device');
+                    this.pc.setRemoteDescription(new RTCSessionDescription(answer)).then(() => resolve()).catch(error => reject(error));
+                }, 250);
+            } else {
+                // 400 ms have elapsed
+                this.pc.setRemoteDescription(new RTCSessionDescription(answer)).then(() => resolve()).catch(error => reject(error));
+            }
+        } else {
+            // Rest of platforms
+            this.pc.setRemoteDescription(answer).then(() => resolve()).catch(error => reject(error));
+        }
     }
 
     /**
@@ -269,7 +240,7 @@ export class WebRtcPeer {
      */
     addIceCandidate(iceCandidate: RTCIceCandidate): Promise<void> {
         return new Promise((resolve, reject) => {
-            console.debug('Remote ICE candidate received', iceCandidate);
+            logger.debug('Remote ICE candidate received', iceCandidate);
             this.remoteCandidatesQueue.push(iceCandidate);
             switch (this.pc.signalingState) {
                 case 'closed':
@@ -288,6 +259,43 @@ export class WebRtcPeer {
                     resolve();
             }
         });
+    }
+
+    addIceConnectionStateChangeListener(otherId: string) {
+        this.pc.oniceconnectionstatechange = () => {
+            const iceConnectionState: RTCIceConnectionState = this.pc.iceConnectionState;
+            switch (iceConnectionState) {
+                case 'disconnected':
+                    // Possible network disconnection
+                    logger.warn('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "disconnected". Possible network disconnection');
+                    break;
+                case 'failed':
+                    logger.error('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') to "failed"');
+                    break;
+                case 'closed':
+                    logger.log('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "closed"');
+                    break;
+                case 'new':
+                    logger.log('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "new"');
+                    break;
+                case 'checking':
+                    logger.log('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "checking"');
+                    break;
+                case 'connected':
+                    logger.log('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "connected"');
+                    break;
+                case 'completed':
+                    logger.log('IceConnectionState of RTCPeerConnection ' + this.id + ' (' + otherId + ') change to "completed"');
+                    break;
+            }
+        }
+    }
+
+    /**
+     * @hidden
+     */
+    generateUniqueId(): string {
+        return uuid.v4();
     }
 
 }

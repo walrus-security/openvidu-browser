@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,16 @@
 
 import { Event } from './Event';
 import { Session } from '../../OpenVidu/Session';
+import { OpenViduLogger } from '../Logger/OpenViduLogger';
+
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
 
 
 /**
- * Defines event `sessionDisconnected` dispatched by [[Session]]
+ * Defines event `sessionDisconnected` dispatched by [[Session]] after the local user has left the session. This is the local version of the `connectionDestroyed` event, which is only dispatched by remote users
  */
 export class SessionDisconnectedEvent extends Event {
 
@@ -29,7 +35,10 @@ export class SessionDisconnectedEvent extends Event {
      * - "forceDisconnectByUser": you have been evicted from the Session by other user calling `Session.forceDisconnect()`
      * - "forceDisconnectByServer": you have been evicted from the Session by the application
      * - "sessionClosedByServer": the Session has been closed by the application
-     * - "networkDisconnect": your network connection has dropped
+     * - "networkDisconnect": your network connection has dropped. Before a SessionDisconnectedEvent with this reason is triggered,
+     *      Session object will always have previously dispatched a `reconnecting` event. If the reconnection process succeeds,
+     *      Session object will dispatch a `reconnected` event. If it fails, Session object will dispatch a SessionDisconnectedEvent
+     *      with reason "networkDisconnect"
      */
     reason: string;
 
@@ -46,7 +55,7 @@ export class SessionDisconnectedEvent extends Event {
      */
     callDefaultBehavior() {
 
-        console.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Session'");
+        logger.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Session'");
 
         const session = <Session>this.target;
 

@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import { OpenVidu } from './OpenVidu';
 import { Session } from './Session';
 import { Stream } from './Stream';
 import { StreamManager } from './StreamManager';
-import { EventDispatcher } from '../OpenViduInternal/Interfaces/Public/EventDispatcher';
+import { EventDispatcher } from './EventDispatcher';
 import { PublisherProperties } from '../OpenViduInternal/Interfaces/Public/PublisherProperties';
 import { Event } from '../OpenViduInternal/Events/Event';
 import { StreamEvent } from '../OpenViduInternal/Events/StreamEvent';
@@ -29,9 +29,25 @@ import { OpenViduError, OpenViduErrorName } from '../OpenViduInternal/Enums/Open
 import { VideoInsertMode } from '../OpenViduInternal/Enums/VideoInsertMode';
 
 import platform = require('platform');
+import { OpenViduLogger } from '../OpenViduInternal/Logger/OpenViduLogger';
+
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
 
 /**
  * Packs local media streams. Participants can publish it to a session. Initialized with [[OpenVidu.initPublisher]] method
+ *
+ * ### Available event listeners (and events dispatched)
+ *
+ * - accessAllowed
+ * - accessDenied
+ * - accessDialogOpened
+ * - accessDialogClosed
+ * - streamCreated ([[StreamEvent]])
+ * - streamDestroyed ([[StreamEvent]])
+ * - streamPropertyChanged ([[StreamPropertyChangedEvent]])
  */
 export class Publisher extends StreamManager {
 
@@ -51,7 +67,7 @@ export class Publisher extends StreamManager {
     session: Session; // Initialized by Session.publish(Publisher)
 
     private accessDenied = false;
-    private properties: PublisherProperties;
+    protected properties: PublisherProperties;
     private permissionDialogTimeout: NodeJS.Timer;
 
     /**
@@ -107,7 +123,8 @@ export class Publisher extends StreamManager {
      */
     publishAudio(value: boolean): void {
         if (this.stream.audioActive !== value) {
-            this.stream.getMediaStream().getAudioTracks().forEach((track) => {
+            const affectedMediaStream: MediaStream = this.stream.displayMyRemote() ? this.stream.localMediaStreamWhenSubscribedToRemote : this.stream.getMediaStream();
+            affectedMediaStream.getAudioTracks().forEach((track) => {
                 track.enabled = value;
             });
             if (!!this.session && !!this.stream.streamId) {
@@ -121,7 +138,7 @@ export class Publisher extends StreamManager {
                     },
                     (error, response) => {
                         if (error) {
-                            console.error("Error sending 'streamPropertyChanged' event", error);
+                            logger.error("Error sending 'streamPropertyChanged' event", error);
                         } else {
                             this.session.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this.session, this.stream, 'audioActive', value, !value, 'publishAudio')]);
                             this.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this, this.stream, 'audioActive', value, !value, 'publishAudio')]);
@@ -129,7 +146,7 @@ export class Publisher extends StreamManager {
                     });
             }
             this.stream.audioActive = value;
-            console.info("'Publisher' has " + (value ? 'published' : 'unpublished') + ' its audio stream');
+            logger.info("'Publisher' has " + (value ? 'published' : 'unpublished') + ' its audio stream');
         }
     }
 
@@ -153,7 +170,8 @@ export class Publisher extends StreamManager {
      */
     publishVideo(value: boolean): void {
         if (this.stream.videoActive !== value) {
-            this.stream.getMediaStream().getVideoTracks().forEach((track) => {
+            const affectedMediaStream: MediaStream = this.stream.displayMyRemote() ? this.stream.localMediaStreamWhenSubscribedToRemote : this.stream.getMediaStream();
+            affectedMediaStream.getVideoTracks().forEach((track) => {
                 track.enabled = value;
             });
             if (!!this.session && !!this.stream.streamId) {
@@ -167,7 +185,7 @@ export class Publisher extends StreamManager {
                     },
                     (error, response) => {
                         if (error) {
-                            console.error("Error sending 'streamPropertyChanged' event", error);
+                            logger.error("Error sending 'streamPropertyChanged' event", error);
                         } else {
                             this.session.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this.session, this.stream, 'videoActive', value, !value, 'publishVideo')]);
                             this.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this, this.stream, 'videoActive', value, !value, 'publishVideo')]);
@@ -175,7 +193,7 @@ export class Publisher extends StreamManager {
                     });
             }
             this.stream.videoActive = value;
-            console.info("'Publisher' has " + (value ? 'published' : 'unpublished') + ' its video stream');
+            logger.info("'Publisher' has " + (value ? 'published' : 'unpublished') + ' its video stream');
         }
     }
 
@@ -263,6 +281,66 @@ export class Publisher extends StreamManager {
         return this;
     }
 
+    /**
+     * Replaces the current video or audio track with a different one. This allows you to replace an ongoing track with a different one
+     * without having to renegotiate the whole WebRTC connection (that is, initializing a new Publisher, unpublishing the previous one
+     * and publishing the new one).
+     *
+     * You can get this new MediaStreamTrack by using the native Web API or simply with [[OpenVidu.getUserMedia]] method.
+     *
+     * **WARNING: this method has been proven to work, but there may be some combinations of published/replaced tracks that may be incompatible between them and break the connection in OpenVidu Server. A complete renegotiation may be the only solution in this case**
+     *
+     * @param track The [MediaStreamTrack](https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack) object to replace the current one. If it is an audio track, the current audio track will be the replaced one. If it
+     * is a video track, the current video track will be the replaced one.
+     *
+     * @returns A Promise (to which you can optionally subscribe to) that is resolved if the track was successfully replaced and rejected with an Error object in other case
+     */
+    replaceTrack(track: MediaStreamTrack): Promise<any> {
+
+        const replaceMediaStreamTrack = () => {
+            const mediaStream: MediaStream = this.stream.displayMyRemote() ? this.stream.localMediaStreamWhenSubscribedToRemote : this.stream.getMediaStream();
+            let removedTrack: MediaStreamTrack;
+            if (track.kind === 'video') {
+                removedTrack = mediaStream.getVideoTracks()[0];
+            } else {
+                removedTrack = mediaStream.getAudioTracks()[0];
+            }
+            mediaStream.removeTrack(removedTrack);
+            removedTrack.stop();
+            mediaStream.addTrack(track);
+        }
+
+        return new Promise((resolve, reject) => {
+            if (this.stream.isLocalStreamPublished) {
+                // Only if the Publisher has been published is necessary to call native Web API RTCRtpSender.replaceTrack
+                const senders: RTCRtpSender[] = this.stream.getRTCPeerConnection().getSenders();
+                let sender: RTCRtpSender | undefined;
+                if (track.kind === 'video') {
+                    sender = senders.find(s => !!s.track && s.track.kind === 'video');
+                    if (!sender) {
+                        reject(new Error('There\'s no replaceable track for that kind of MediaStreamTrack in this Publisher object'))
+                    }
+                } else if (track.kind === 'audio') {
+                    sender = senders.find(s => !!s.track && s.track.kind === 'audio');
+                    if (!sender) {
+                        reject(new Error('There\'s no replaceable track for that kind of MediaStreamTrack in this Publisher object'))
+                    }
+                } else {
+                    reject(new Error('Unknown track kind ' + track.kind));
+                }
+                (<any>sender).replaceTrack(track).then(() => {
+                    replaceMediaStreamTrack();
+                    resolve();
+                }).catch(error => {
+                    reject(error);
+                });
+            } else {
+                // Publisher not published. Simply modify local MediaStream tracks
+                replaceMediaStreamTrack();
+                resolve();
+            }
+        });
+    }
 
     /* Hidden methods */
 
@@ -307,19 +385,7 @@ export class Publisher extends StreamManager {
                     mediaStream.getVideoTracks()[0].enabled = enabled;
                 }
 
-                this.videoReference = document.createElement('video');
-
-                if (platform.name === 'Safari') {
-                    this.videoReference.setAttribute('playsinline', 'true');
-                }
-
-                this.stream.setMediaStream(mediaStream);
-
-                if (!!this.firstVideoElement) {
-                    this.createVideoElement(this.firstVideoElement.targetElement, <VideoInsertMode>this.properties.insertMode);
-                }
-
-                this.videoReference.srcObject = mediaStream;
+                this.initializeVideoReference(mediaStream);
 
                 if (!this.stream.displayMyRemote()) {
                     // When we are subscribed to our remote we don't still set the MediaStream object in the video elements to
@@ -365,7 +431,7 @@ export class Publisher extends StreamManager {
                             // Rest of platforms
                             // With no screen share, video dimension can be set directly from MediaStream (getSettings)
                             // Orientation must be checked for mobile devices (width and height are reversed)
-                            const { width, height } = mediaStream.getVideoTracks()[0].getSettings();
+                            const { width, height } = this.getVideoDimensions(mediaStream);
 
                             if ((platform.os!!.family === 'iOS' || platform.os!!.family === 'Android') && (window.innerHeight > window.innerWidth)) {
                                 // Mobile portrait mode
@@ -411,7 +477,7 @@ export class Publisher extends StreamManager {
                                         },
                                         (error, response) => {
                                             if (error) {
-                                                console.error("Error sending 'streamPropertyChanged' event", error);
+                                                logger.error("Error sending 'streamPropertyChanged' event", error);
                                             } else {
                                                 this.session.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this.session, this.stream, 'videoDimensions', this.stream.videoDimensions, oldValue, 'screenResized')]);
                                                 this.emitEvent('streamPropertyChanged', [new StreamPropertyChangedEvent(this, this.stream, 'videoDimensions', this.stream.videoDimensions, oldValue, 'screenResized')]);
@@ -447,33 +513,14 @@ export class Publisher extends StreamManager {
                         })
                         .catch(error => {
                             this.clearPermissionDialogTimer(startTime, timeForDialogEvent);
-                            if (error.name === 'Error') {
-                                // Safari OverConstrainedError has as name property 'Error' instead of 'OverConstrainedError'
-                                error.name = error.constructor.name;
-                            }
-                            let errorName, errorMessage;
-                            switch (error.name.toLowerCase()) {
-                                case 'notfounderror':
-                                    errorName = OpenViduErrorName.INPUT_AUDIO_DEVICE_NOT_FOUND;
-                                    errorMessage = error.toString();
-                                    errorCallback(new OpenViduError(errorName, errorMessage));
-                                    break;
-                                case 'notallowederror':
-                                    errorName = OpenViduErrorName.DEVICE_ACCESS_DENIED;
-                                    errorMessage = error.toString();
-                                    errorCallback(new OpenViduError(errorName, errorMessage));
-                                    break;
-                                case 'overconstrainederror':
-                                    if (error.constraint.toLowerCase() === 'deviceid') {
-                                        errorName = OpenViduErrorName.INPUT_AUDIO_DEVICE_NOT_FOUND;
-                                        errorMessage = "Audio input device with deviceId '" + (<ConstrainDOMStringParameters>(<MediaTrackConstraints>constraints.video).deviceId!!).exact + "' not found";
-                                    } else {
-                                        errorName = OpenViduErrorName.PUBLISHER_PROPERTIES_ERROR;
-                                        errorMessage = "Audio input device doesn't support the value passed for constraint '" + error.constraint + "'";
-                                    }
-                                    errorCallback(new OpenViduError(errorName, errorMessage));
-                                    break;
-                            }
+                            mediaStream.getAudioTracks().forEach((track) => {
+                                track.stop();
+                            });
+                            mediaStream.getVideoTracks().forEach((track) => {
+                                track.stop();
+                            });
+                            errorCallback(this.openvidu.generateAudioDeviceError(error, constraints));
+                            return;
                         });
                 } else {
                     successCallback(mediaStream);
@@ -481,7 +528,7 @@ export class Publisher extends StreamManager {
             };
 
             const getMediaError = error => {
-                console.error(error);
+                logger.error(error);
                 this.clearPermissionDialogTimer(startTime, timeForDialogEvent);
                 if (error.name === 'Error') {
                     // Safari OverConstrainedError has as name property 'Error' instead of 'OverConstrainedError'
@@ -554,70 +601,52 @@ export class Publisher extends StreamManager {
                 }
             }
 
-            // Check if new constraints need to be generated. No constraints needed if
-            // - video track is given and no audio
-            // - audio track is given and no video
-            // - both video and audio tracks are given
-            if ((typeof MediaStreamTrack !== 'undefined' && this.properties.videoSource instanceof MediaStreamTrack && !this.properties.audioSource)
-                || (typeof MediaStreamTrack !== 'undefined' && this.properties.audioSource instanceof MediaStreamTrack && !this.properties.videoSource)
-                || (typeof MediaStreamTrack !== 'undefined' && this.properties.videoSource instanceof MediaStreamTrack && this.properties.audioSource instanceof MediaStreamTrack)) {
-                const mediaStream = new MediaStream();
-                if (typeof MediaStreamTrack !== 'undefined' && this.properties.videoSource instanceof MediaStreamTrack) {
-                    mediaStream.addTrack((<MediaStreamTrack>this.properties.videoSource));
-                }
-                if (typeof MediaStreamTrack !== 'undefined' && this.properties.audioSource instanceof MediaStreamTrack) {
-                    mediaStream.addTrack((<MediaStreamTrack>this.properties.audioSource));
-                }
-                // MediaStreamTracks are handled within callback - just call callback with new MediaStream() and let it handle the sources
-                successCallback(mediaStream);
-                // Return as we do not need to process further
-                return;
-            }
-
             this.openvidu.generateMediaConstraints(this.properties)
                 .then(myConstraints => {
 
-                    constraints = myConstraints;
+                    if (!!myConstraints.videoTrack && !!myConstraints.audioTrack ||
+                      !!myConstraints.audioTrack && myConstraints.constraints?.video === false ||
+                      !!myConstraints.videoTrack && myConstraints.constraints?.audio === false) {
+                        // No need to call getUserMedia at all. MediaStreamTracks already provided
+                        successCallback(this.openvidu.addAlreadyProvidedTracks(myConstraints, new MediaStream()));
+                        // Return as we do not need to process further
+                        return;
+                    }
+
+                    constraints = myConstraints.constraints;
 
                     const outboundStreamOptions = {
                         mediaConstraints: constraints,
                         publisherProperties: this.properties
                     };
-
                     this.stream.setOutboundStreamOptions(outboundStreamOptions);
 
-                    if (this.stream.isSendVideo() || this.stream.isSendAudio()) {
-                        const definedAudioConstraint = ((constraints.audio === undefined) ? true : constraints.audio);
-                        constraintsAux.audio = this.stream.isSendScreen() ? false : definedAudioConstraint;
-                        constraintsAux.video = constraints.video;
-                        startTime = Date.now();
-                        this.setPermissionDialogTimer(timeForDialogEvent);
+                    const definedAudioConstraint = ((constraints.audio === undefined) ? true : constraints.audio);
+                    constraintsAux.audio = this.stream.isSendScreen() ? false : definedAudioConstraint;
+                    constraintsAux.video = constraints.video;
+                    startTime = Date.now();
+                    this.setPermissionDialogTimer(timeForDialogEvent);
 
-                        if (this.stream.isSendScreen() && navigator.mediaDevices['getDisplayMedia'] && platform.name !== 'Electron') {
-
-                            navigator.mediaDevices['getDisplayMedia']({ video: true })
-                                .then(mediaStream => {
-                                    getMediaSuccess(mediaStream, definedAudioConstraint);
-                                })
-                                .catch(error => {
-                                    getMediaError(error);
-                                });
-
-                        } else {
-
-                            navigator.mediaDevices.getUserMedia(constraintsAux)
-                                .then(mediaStream => {
-                                    getMediaSuccess(mediaStream, definedAudioConstraint);
-                                })
-                                .catch(error => {
-                                    getMediaError(error);
-                                });
-
-                        }
+                    if (this.stream.isSendScreen() && navigator.mediaDevices['getDisplayMedia'] && platform.name !== 'Electron') {
+                        navigator.mediaDevices['getDisplayMedia']({ video: true })
+                            .then(mediaStream => {
+                                this.openvidu.addAlreadyProvidedTracks(myConstraints, mediaStream);
+                                getMediaSuccess(mediaStream, definedAudioConstraint);
+                            })
+                            .catch(error => {
+                                getMediaError(error);
+                            });
                     } else {
-                        reject(new OpenViduError(OpenViduErrorName.NO_INPUT_SOURCE_SET,
-                            "Properties 'audioSource' and 'videoSource' cannot be set to false or null at the same time when calling 'OpenVidu.initPublisher'"));
+                        navigator.mediaDevices.getUserMedia(constraintsAux)
+                            .then(mediaStream => {
+                                this.openvidu.addAlreadyProvidedTracks(myConstraints, mediaStream);
+                                getMediaSuccess(mediaStream, definedAudioConstraint);
+                            })
+                            .catch(error => {
+                                getMediaError(error);
+                            });
                     }
+
                 })
                 .catch((error: OpenViduError) => {
                     errorCallback(error);
@@ -628,10 +657,36 @@ export class Publisher extends StreamManager {
     /**
      * @hidden
      */
+    getVideoDimensions(mediaStream: MediaStream): MediaTrackSettings {
+        return mediaStream.getVideoTracks()[0].getSettings();
+    }
+
+    /**
+     * @hidden
+     */
     reestablishStreamPlayingEvent() {
         if (this.ee.getListeners('streamPlaying').length > 0) {
             this.addPlayEventToFirstVideo();
         }
+    }
+
+    /**
+     * @hidden
+     */
+    initializeVideoReference(mediaStream: MediaStream) {
+        this.videoReference = document.createElement('video');
+
+        if (platform.name === 'Safari') {
+            this.videoReference.setAttribute('playsinline', 'true');
+        }
+
+        this.stream.setMediaStream(mediaStream);
+
+        if (!!this.firstVideoElement) {
+            this.createVideoElement(this.firstVideoElement.targetElement, <VideoInsertMode>this.properties.insertMode);
+        }
+
+        this.videoReference.srcObject = mediaStream;
     }
 
 

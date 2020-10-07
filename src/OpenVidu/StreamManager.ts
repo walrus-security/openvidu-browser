@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,37 @@
  */
 
 import { Stream } from './Stream';
-import { EventDispatcher } from '../OpenViduInternal/Interfaces/Public/EventDispatcher';
+import { EventDispatcher } from './EventDispatcher';
 import { StreamManagerVideo } from '../OpenViduInternal/Interfaces/Public/StreamManagerVideo';
 import { Event } from '../OpenViduInternal/Events/Event';
 import { StreamManagerEvent } from '../OpenViduInternal/Events/StreamManagerEvent';
 import { VideoElementEvent } from '../OpenViduInternal/Events/VideoElementEvent';
 import { VideoInsertMode } from '../OpenViduInternal/Enums/VideoInsertMode';
 
-import EventEmitter = require('wolfy87-eventemitter');
 import platform = require('platform');
+import { OpenViduLogger } from '../OpenViduInternal/Logger/OpenViduLogger';
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
 
 /**
  * Interface in charge of displaying the media streams in the HTML DOM. This wraps any [[Publisher]] and [[Subscriber]] object.
  * You can insert as many video players fo the same Stream as you want by calling [[StreamManager.addVideoElement]] or
  * [[StreamManager.createVideoElement]].
- *
  * The use of StreamManager wrapper is particularly useful when you don't need to differentiate between Publisher or Subscriber streams or just
  * want to directly manage your own video elements (even more than one video element per Stream). This scenario is pretty common in
  * declarative, MVC frontend frameworks such as Angular, React or Vue.js
+ *
+ * ### Available event listeners (and events dispatched)
+ *
+ * - videoElementCreated ([[VideoElementEvent]])
+ * - videoElementDestroyed ([[VideoElementEvent]])
+ * - streamPlaying ([[StreamManagerEvent]])
+ * - streamAudioVolumeChange ([[StreamManagerEvent]])
+ *
  */
-export class StreamManager implements EventDispatcher {
+export class StreamManager extends EventDispatcher {
 
     /**
      * The Stream represented in the DOM by the Publisher/Subscriber
@@ -83,17 +94,14 @@ export class StreamManager implements EventDispatcher {
     /**
      * @hidden
      */
-    ee = new EventEmitter();
-    /**
-     * @hidden
-     */
     protected canPlayListener: EventListener;
-
 
     /**
      * @hidden
      */
     constructor(stream: Stream, targetElement?: HTMLElement | string) {
+        super();
+
         this.stream = stream;
         this.stream.streamManager = this;
         this.remote = !this.stream.isLocal();
@@ -124,14 +132,14 @@ export class StreamManager implements EventDispatcher {
         this.canPlayListener = () => {
             if (this.stream.isLocal()) {
                 if (!this.stream.displayMyRemote()) {
-                    console.info("Your local 'Stream' with id [" + this.stream.streamId + '] video is now playing');
+                    logger.info("Your local 'Stream' with id [" + this.stream.streamId + '] video is now playing');
                     this.ee.emitEvent('videoPlaying', [new VideoElementEvent(this.videos[0].video, this, 'videoPlaying')]);
                 } else {
-                    console.info("Your own remote 'Stream' with id [" + this.stream.streamId + '] video is now playing');
+                    logger.info("Your own remote 'Stream' with id [" + this.stream.streamId + '] video is now playing');
                     this.ee.emitEvent('remoteVideoPlaying', [new VideoElementEvent(this.videos[0].video, this, 'remoteVideoPlaying')]);
                 }
             } else {
-                console.info("Remote 'Stream' with id [" + this.stream.streamId + '] video is now playing');
+                logger.info("Remote 'Stream' with id [" + this.stream.streamId + '] video is now playing');
                 this.ee.emitEvent('videoPlaying', [new VideoElementEvent(this.videos[0].video, this, 'videoPlaying')]);
             }
             this.ee.emitEvent('streamPlaying', [new StreamManagerEvent(this, 'streamPlaying', undefined)]);
@@ -142,16 +150,9 @@ export class StreamManager implements EventDispatcher {
      * See [[EventDispatcher.on]]
      */
     on(type: string, handler: (event: Event) => void): EventDispatcher {
-        this.ee.on(type, event => {
-	    if (type !== 'streamAudioVolumeChange') {
-                if (event) {
-                   console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'", event);
-                } else {
-                    console.info("Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'");
-                }
-	    }
-            handler(event);
-        });
+
+        super.onAux(type, "Event '" + type + "' triggered by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'", handler)
+
         if (type === 'videoElementCreated') {
             if (!!this.stream && this.lazyLaunchVideoElementCreatedEvent) {
                 this.ee.emitEvent('videoElementCreated', [new VideoElementEvent(this.videos[0].video, this, 'videoElementCreated')]);
@@ -169,7 +170,7 @@ export class StreamManager implements EventDispatcher {
             }
         }
         if (type === 'streamAudioVolumeChange' && this.stream.hasAudio) {
-            this.stream.enableVolumeChangeEvent();
+            this.stream.enableVolumeChangeEvent(false);
         }
         return this;
     }
@@ -178,14 +179,9 @@ export class StreamManager implements EventDispatcher {
      * See [[EventDispatcher.once]]
      */
     once(type: string, handler: (event: Event) => void): StreamManager {
-        this.ee.once(type, event => {
-            if (event) {
-                console.info("Event '" + type + "' triggered once", event);
-            } else {
-                console.info("Event '" + type + "' triggered once");
-            }
-            handler(event);
-        });
+
+        super.onceAux(type, "Event '" + type + "' triggered once by '" + (this.remote ? 'Subscriber' : 'Publisher') + "'", handler);
+
         if (type === 'videoElementCreated') {
             if (!!this.stream && this.lazyLaunchVideoElementCreatedEvent) {
                 this.ee.emitEvent('videoElementCreated', [new VideoElementEvent(this.videos[0].video, this, 'videoElementCreated')]);
@@ -202,7 +198,7 @@ export class StreamManager implements EventDispatcher {
             }
         }
         if (type === 'streamAudioVolumeChange' && this.stream.hasAudio) {
-            this.stream.enableOnceVolumeChangeEvent();
+            this.stream.enableOnceVolumeChangeEvent(false);
         }
         return this;
     }
@@ -211,14 +207,14 @@ export class StreamManager implements EventDispatcher {
      * See [[EventDispatcher.off]]
      */
     off(type: string, handler?: (event: Event) => void): StreamManager {
-        if (!handler) {
-            this.ee.removeAllListeners(type);
-        } else {
-            this.ee.off(type, handler);
-        }
+
+        super.off(type, handler);
 
         if (type === 'streamAudioVolumeChange') {
-            this.stream.disableVolumeChangeEvent();
+            let remainingVolumeEventListeners = this.ee.getListeners(type).length;
+            if (remainingVolumeEventListeners === 0) {
+                this.stream.disableVolumeChangeEvent(false);
+            }
         }
 
         return this;
@@ -226,7 +222,7 @@ export class StreamManager implements EventDispatcher {
 
     /**
      * Makes `video` element parameter display this [[stream]]. This is useful when you are
-     * [managing the video elements on your own](/docs/how-do-i/manage-videos/#you-take-care-of-the-video-players)
+     * [managing the video elements on your own](/en/stable/cheatsheet/manage-videos/#you-take-care-of-the-video-players)
      *
      * Calling this method with a video already added to other Publisher/Subscriber will cause the video element to be
      * disassociated from that previous Publisher/Subscriber and to be associated to this one.
@@ -271,7 +267,7 @@ export class StreamManager implements EventDispatcher {
             canplayListenerAdded: false
         });
 
-        console.info('New video element associated to ', this);
+        logger.info('New video element associated to ', this);
 
         return returnNumber;
     }
@@ -301,7 +297,7 @@ export class StreamManager implements EventDispatcher {
             throw new Error("The provided 'targetElement' couldn't be resolved to any HTML element: " + targetElement);
         }
 
-        const video = document.createElement('video');
+        const video = this.createVideo();
         this.initializeVideoProperties(video);
 
         let insMode = !!insertMode ? insertMode : VideoInsertMode.APPEND;
@@ -343,6 +339,33 @@ export class StreamManager implements EventDispatcher {
     }
 
     /**
+     * Updates the current configuration for the [[PublisherSpeakingEvent]] feature and the [StreamManagerEvent.streamAudioVolumeChange](/en/stable/api/openvidu-browser/classes/streammanagerevent.html) feature for this specific
+     * StreamManager audio stream, overriding the global options set with [[OpenVidu.setAdvancedConfiguration]]. This way you can customize the audio events options
+     * for each specific StreamManager and change them dynamically.
+     *
+     * @param publisherSpeakingEventsOptions New options to be applied to this StreamManager's audio stream. It is an object which includes the following optional properties:
+     * - `interval`: (number) how frequently the analyser polls the audio stream to check if speaking has started/stopped or audio volume has changed. Default **100** (ms)
+     * - `threshold`: (number) the volume at which _publisherStartSpeaking_, _publisherStopSpeaking_ events will be fired. Default **-50** (dB)
+     */
+    updatePublisherSpeakingEventsOptions(publisherSpeakingEventsOptions): void {
+        const currentHarkOptions = !!this.stream.harkOptions ? this.stream.harkOptions : (this.stream.session.openvidu.advancedConfiguration.publisherSpeakingEventsOptions || {});
+        const newInterval = (typeof publisherSpeakingEventsOptions.interval === 'number') ?
+            publisherSpeakingEventsOptions.interval : ((typeof currentHarkOptions.interval === 'number') ? currentHarkOptions.interval : 100);
+        const newThreshold = (typeof publisherSpeakingEventsOptions.threshold === 'number') ?
+            publisherSpeakingEventsOptions.threshold : ((typeof currentHarkOptions.threshold === 'number') ? currentHarkOptions.threshold : -50);
+        this.stream.harkOptions = {
+            interval: newInterval,
+            threshold: newThreshold
+        };
+        if (!!this.stream.speechEvent) {
+            this.stream.speechEvent.setInterval(newInterval);
+            this.stream.speechEvent.setThreshold(newThreshold);
+        }
+    }
+
+    /* Hidden methods */
+
+    /**
      * @hidden
      */
     initializeVideoProperties(video: HTMLVideoElement): void {
@@ -362,7 +385,7 @@ export class StreamManager implements EventDispatcher {
 
         if (!video.id) {
             video.id = (this.remote ? 'remote-' : 'local-') + 'video-' + this.stream.streamId;
-            // DEPRECATED property: assign once the property id if the user provided a valid targetElement	
+            // DEPRECATED property: assign once the property id if the user provided a valid targetElement
             if (!this.id && !!this.targetElement) {
                 this.id = video.id;
             }
@@ -391,8 +414,9 @@ export class StreamManager implements EventDispatcher {
 
         this.videos.forEach(streamManagerVideo => {
             // Remove oncanplay event listener (only OpenVidu browser listener, not the user ones)
-            streamManagerVideo.video.removeEventListener('canplay', this.canPlayListener);
-            streamManagerVideo.canplayListenerAdded = false;
+            if(!!streamManagerVideo.video && !!streamManagerVideo.video.removeEventListener){
+                streamManagerVideo.video.removeEventListener('canplay', this.canPlayListener);
+            }            streamManagerVideo.canplayListenerAdded = false;
             if (!!streamManagerVideo.targetElement) {
                 // Only remove from DOM videos created by OpenVidu Browser (those generated by passing a valid targetElement in OpenVidu.initPublisher
                 // and Session.subscribe or those created by StreamManager.createVideoElement). All this videos triggered a videoElementCreated event
@@ -400,7 +424,7 @@ export class StreamManager implements EventDispatcher {
                 this.ee.emitEvent('videoElementDestroyed', [new VideoElementEvent(streamManagerVideo.video, this, 'videoElementDestroyed')]);
             }
             // Remove srcObject from the video
-            streamManagerVideo.video.srcObject = null;
+            this.removeSrcObject(streamManagerVideo);
             // Remove from collection of videos every video managed by OpenVidu Browser
             this.videos.filter(v => !v.targetElement);
         });
@@ -416,7 +440,7 @@ export class StreamManager implements EventDispatcher {
                 this.videos[i].video.removeEventListener('canplay', this.canPlayListener);
                 this.videos.splice(i, 1);
                 disassociated = true;
-                console.info('Video element disassociated from ', this);
+                logger.info('Video element disassociated from ', this);
                 break;
             }
         }
@@ -457,7 +481,23 @@ export class StreamManager implements EventDispatcher {
         this.ee.emitEvent(type, eventArray);
     }
 
-    private pushNewStreamManagerVideo(streamManagerVideo: StreamManagerVideo) {
+     /**
+     * @hidden
+     */
+    createVideo(): HTMLVideoElement {
+        return document.createElement('video');
+    }
+
+    /**
+     * @hidden
+     */
+    removeSrcObject(streamManagerVideo: StreamManagerVideo) {
+        streamManagerVideo.video.srcObject = null;
+    }
+
+    /* Private methods */
+
+    protected pushNewStreamManagerVideo(streamManagerVideo: StreamManagerVideo) {
         this.videos.push(streamManagerVideo);
         this.addPlayEventToFirstVideo();
         if (this.stream.session.streamManagers.indexOf(this) === -1) {

@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ export class StreamPropertyChangedEvent extends Event {
      * - For `videoActive`: `"publishVideo"`
      * - For `audioActive`: `"publishAudio"`
      * - For `videoDimensions`: `"deviceRotated"` or `"screenResized"`
+     * - For `filter`: `"applyFilter"`, `"execFilterMethod"` or `"removeFilter"`
      */
     reason: string;
 

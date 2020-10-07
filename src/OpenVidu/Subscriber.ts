@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,12 @@
 import { Stream } from './Stream';
 import { StreamManager } from './StreamManager';
 import { SubscriberProperties } from '../OpenViduInternal/Interfaces/Public/SubscriberProperties';
+import { OpenViduLogger } from '../OpenViduInternal/Logger/OpenViduLogger';
 
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
 
 /**
  * Packs remote media streams. Participants automatically receive them when others publish their streams. Initialized with [[Session.subscribe]] method
@@ -48,7 +53,8 @@ export class Subscriber extends StreamManager {
         this.stream.getMediaStream().getAudioTracks().forEach((track) => {
             track.enabled = value;
         });
-        console.info("'Subscriber' has " + (value ? 'subscribed to' : 'unsubscribed from') + ' its audio stream');
+        this.stream.audioActive = value;
+        logger.info("'Subscriber' has " + (value ? 'subscribed to' : 'unsubscribed from') + ' its audio stream');
         return this;
     }
 
@@ -60,7 +66,8 @@ export class Subscriber extends StreamManager {
         this.stream.getMediaStream().getVideoTracks().forEach((track) => {
             track.enabled = value;
         });
-        console.info("'Subscriber' has " + (value ? 'subscribed to' : 'unsubscribed from') + ' its video stream');
+        this.stream.videoActive = value;
+        logger.info("'Subscriber' has " + (value ? 'subscribed to' : 'unsubscribed from') + ' its video stream');
         return this;
     }
 

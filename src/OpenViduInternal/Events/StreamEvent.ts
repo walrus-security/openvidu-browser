@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +19,17 @@ import { Event } from './Event';
 import { Publisher } from '../../OpenVidu/Publisher';
 import { Session } from '../../OpenVidu/Session';
 import { Stream } from '../../OpenVidu/Stream';
+import { OpenViduLogger } from '../Logger/OpenViduLogger';
 
+/**
+ * @hidden
+ */
+const logger: OpenViduLogger = OpenViduLogger.getInstance();
 
 /**
  * Defines the following events:
- * - `streamCreated`: dispatched by [[Session]] and [[Publisher]]
- * - `streamDestroyed`: dispatched by [[Session]] and [[Publisher]]
+ * - `streamCreated`: dispatched by [[Session]] and [[Publisher]] after some user has started publishing to the session
+ * - `streamDestroyed`: dispatched by [[Session]] and [[Publisher]] after some user has stopped publishing to the session
  */
 export class StreamEvent extends Event {
 
@@ -43,7 +48,7 @@ export class StreamEvent extends Event {
      * - "forceDisconnectByServer": the user has been evicted from the Session by the application
      * - "sessionClosedByServer": the Session has been closed by the application
      * - "networkDisconnect": the user's network connection has dropped
-     * - "mediaServerDisconnect": OpenVidu Media Server has crashed or lost its connection. A new media server instance is active and no media streams are available in the media server
+     * - "mediaServerDisconnect": OpenVidu Media Node has crashed or lost its connection. A new Media Node instance is active and no media streams are available in the Media Node
      *
      * For 'streamCreated' empty string
      */
@@ -66,11 +71,11 @@ export class StreamEvent extends Event {
 
             if (this.target instanceof Session) {
                 // Remote Stream
-                console.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Session'");
+                logger.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Session'");
                 this.stream.disposeWebRtcPeer();
             } else if (this.target instanceof Publisher) {
                 // Local Stream
-                console.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Publisher'");
+                logger.info("Calling default behavior upon '" + this.type + "' event dispatched by 'Publisher'");
                 clearInterval((<Publisher>this.target).screenShareResizeInterval);
                 this.stream.isLocalStreamReadyToPublish = false;
 

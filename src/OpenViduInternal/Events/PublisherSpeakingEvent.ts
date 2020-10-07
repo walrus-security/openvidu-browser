@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,13 +22,11 @@ import { Session } from '../..';
 
 /**
  * Defines the following events:
- * - `publisherStartSpeaking`: dispatched by [[Session]]
- * - `publisherStopSpeaking`: dispatched by [[Session]]
+ * - `publisherStartSpeaking`: dispatched by [[Session]] when a remote user has started speaking
+ * - `publisherStopSpeaking`: dispatched by [[Session]] when a remote user has stopped speaking
  *
  * More information:
  * - This events will only be triggered for **remote streams that have audio tracks** ([[Stream.hasAudio]] must be true)
- * - Both events share the same lifecycle. That means that you can subscribe to only one of them if you want, but if you call `Session.off('publisherStopSpeaking')`,
- * keep in mind that this will also internally remove any 'publisherStartSpeaking' event
  * - You can further configure how the events are dispatched by setting property `publisherSpeakingEventsOptions` in the call of [[OpenVidu.setAdvancedConfiguration]]
  */
 export class PublisherSpeakingEvent extends Event {

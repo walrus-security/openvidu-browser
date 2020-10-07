@@ -1,5 +1,5 @@
 /*
- * (C) Copyright 2017-2019 OpenVidu (https://openvidu.io/)
+ * (C) Copyright 2017-2020 OpenVidu (https://openvidu.io)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,10 +33,23 @@ export interface OpenViduAdvancedConfiguration {
     screenShareChromeExtension?: string;
 
     /**
-     * Custom configuration for the [[PublisherSpeakingEvent]] feature. It is an object which includes the following optional properties:
-     * - `interval`: (number) how frequently the analyser polls the audio stream to check if speaking has started or stopped. Default **50** (ms)
+     * Custom configuration for the [[PublisherSpeakingEvent]] feature and the [StreamManagerEvent.streamAudioVolumeChange](/en/stable/api/openvidu-browser/classes/streammanagerevent.html) feature. It is an object which includes the following optional properties:
+     * - `interval`: (number) how frequently the analyser polls the audio stream to check if speaking has started/stopped or audio volume has changed. Default **100** (ms)
      * - `threshold`: (number) the volume at which _publisherStartSpeaking_ and _publisherStopSpeaking_ events will be fired. Default **-50** (dB)
+     * 
+     * This sets the global default configuration that will affect all streams, but you can later customize these values for each specific stream by calling [[StreamManager.updatePublisherSpeakingEventsOptions]]
      */
     publisherSpeakingEventsOptions?: any;
+
+    /**
+     * Determines the automatic reconnection process policy. Whenever the client's network drops, OpenVidu Browser starts a reconnection process with OpenVidu Server. After network is recovered, OpenVidu Browser automatically
+     * inspects all of its media streams to see their status. For any of them that are broken, it asks OpenVidu Server for a forced and silent reconnection.
+     * 
+     * This policy is technically enough to recover any broken media connection after a network drop, but in practice it has been proven that OpenVidu Browser may think a media connection has properly recovered when in fact it has not.
+     * This is not a common case, and it only affects Publisher streams, but it may occur. This property allows **forcing OpenVidu Browser to reconnect all of its outgoing media streams** after a network drop regardless of their supposed status.
+     * 
+     * Default to `false`.
+     */
+    forceMediaReconnectionAfterNetworkDrop?: boolean;
 
 }
